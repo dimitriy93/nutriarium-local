@@ -1,0 +1,20 @@
+# deps
+node_modules/
+
+# next
+.next/
+out/
+next-env.d.ts
+
+# misc
+tsconfig.tsbuildinfo
+*.log
+.DS_Store
+
+# env — секретов в этом проекте нет, на всякий случай не коммитим
+.env
+.env.*
+
+# Эталон старой версии — самостоятельный git-репозиторий, только локальный
+# reference. Не является частью новой кодовой базы (новый код его не импортирует).
+nutriarium-base/

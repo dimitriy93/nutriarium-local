@@ -1,0 +1,149 @@
+@import "tailwindcss";
+
+/*
+ * Стиль приложения: iOS / Apple Health / Liquid Glass.
+ * Mobile-first (390px), спокойная зелёно-голубая палитра, полупрозрачные
+ * карточки с большим блюром, мягкие тени, минимум рамок.
+ */
+
+:root {
+  --ink: #1c1c1e;
+  --ink-secondary: #6e6e73;
+  --accent: #34c78f;
+  --accent-soft: #e3f7ee;
+  --card: rgba(255, 255, 255, 0.62);
+}
+
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(1100px 600px at 12% -10%, #dff3e7 0%, transparent 60%),
+    radial-gradient(900px 620px at 105% 15%, #ddeafa 0%, transparent 55%),
+    radial-gradient(800px 700px at 50% 115%, #fdefdc 0%, transparent 55%),
+    #f4f6f8;
+  background-attachment: fixed;
+  min-height: 100dvh;
+}
+
+/* Нижняя плавающая навигация (liquid glass pill) */
+.glass-nav {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow:
+    0 12px 36px rgba(31, 41, 55, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+/* Полупрозрачная «стеклянная» карточка */
+.glass-card {
+  background: var(--card);
+  backdrop-filter: blur(24px) saturate(1.5);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  border-radius: 24px;
+  box-shadow:
+    0 10px 34px rgba(31, 41, 55, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+/* Прозрачный control (кнопки ввода) */
+.glass-control {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 18px;
+  box-shadow: 0 4px 18px rgba(31, 41, 55, 0.07);
+}
+
+.glass-control:active {
+  transform: scale(0.97);
+}
+
+/* Поле ввода: стеклянное, с мягким акцентным фокусом */
+.glass-input {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid transparent;
+  border-radius: 16px;
+  box-shadow: 0 4px 18px rgba(31, 41, 55, 0.07);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.glass-input:focus {
+  outline: none;
+  border-color: rgba(52, 199, 143, 0.55);
+  box-shadow:
+    0 0 0 4px rgba(52, 199, 143, 0.14),
+    0 4px 18px rgba(31, 41, 55, 0.07);
+}
+
+/* Мягкий цветной бейдж (источник блюда, процент цели) */
+.glass-badge {
+  border-radius: 9999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+/* iOS-заголовок секции настроек */
+.section-title {
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ink-secondary);
+}
+
+/* Полоса прогресса КБЖУ */
+.progress-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: rgba(60, 60, 67, 0.09);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Появление модального окна */
+@keyframes sheet-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.sheet-up {
+  animation: sheet-up 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fade-in {
+  animation: fade-in 0.2s ease-out;
+}
