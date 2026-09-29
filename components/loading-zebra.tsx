@@ -1,4 +1,5 @@
 import { hasBrandingImage } from "@/lib/branding";
+import { withBase } from "@/lib/base-path";
 
 /**
  * Брендированный loading-state: зебра-«исследователь» + спокойная подпись.
@@ -20,7 +21,7 @@ export default function LoadingZebra({ caption }: { caption: string }) {
       {hasBrandingImage("zebraLoading") ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src="/branding/zebra-loading.png"
+          src={withBase("/branding/zebra-loading.png")}
           alt=""
           width={120}
           height={120}

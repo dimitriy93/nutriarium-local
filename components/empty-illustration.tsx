@@ -1,3 +1,5 @@
+import { withBase } from "@/lib/base-path";
+
 /**
  * Иллюстрация «данных нет»: /branding/empty.png, если файл есть (клиент
  * получает этот факт через проп hasImage от server component), иначе —
@@ -15,7 +17,7 @@ export default function EmptyIllustration({
       {hasImage ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src="/branding/empty.png"
+          src={withBase("/branding/empty.png")}
           alt=""
           width={180}
           height={180}

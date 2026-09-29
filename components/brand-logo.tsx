@@ -1,3 +1,5 @@
+import { withBase } from "@/lib/base-path";
+
 /**
  * Логотип Nutriarium. Если /branding/logo.png существует — показывается он,
  * иначе аккуратный gradient placeholder с буквой «N» (iOS-style, спокойный).
@@ -7,7 +9,7 @@ export default function BrandLogo({ hasImage, size = 72 }: { hasImage: boolean; 
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src="/branding/logo.png"
+        src={withBase("/branding/logo.png")}
         alt="Логотип Nutriarium"
         width={size}
         height={size}
