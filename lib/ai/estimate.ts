@@ -27,7 +27,7 @@ import type { Action } from "@/lib/types";
 const API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const TIMEOUT_MS = 15_000;
 const TEMPERATURE = 0.1;
-const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_MODEL = "gemini-3.8-flash";
 
 /** Подмножество OpenAPI Schema, поддерживаемое Gemini responseSchema. */
 const kbjuResponseSchema = {
