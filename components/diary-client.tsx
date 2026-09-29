@@ -11,6 +11,7 @@ import {
 import { getGoals, getProfile } from "@/lib/repositories/settings";
 import EmptyIllustration from "@/components/empty-illustration";
 import Pagination from "@/components/pagination";
+import { copyNutritionToClipboard } from "@/lib/export/clipboard";
 import { entryMacros, DEFAULT_GOALS, type Macros } from "@/lib/diary";
 import type { Food, FoodEntry } from "@/lib/db";
 
@@ -44,6 +45,9 @@ export default function DiaryClient({ hasEmptyIllustration }: { hasEmptyIllustra
   const [modalOpen, setModalOpen] = useState(false);
   const [dateLabel, setDateLabel] = useState("");
   const [page, setPage] = useState(1);
+  // Экспорт текущего КБЖУ (Silentium): итоги дня → clipboard JSON.
+  const [exportState, setExportState] = useState<{ ok: boolean; message: string } | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const load = async (d: string) => {
     const [entriesResult, totalsResult] = await Promise.all([
@@ -102,6 +106,19 @@ export default function DiaryClient({ hasEmptyIllustration }: { hasEmptyIllustra
 
   const goal = goals;
   const kcalPct = Math.min(100, goal.calories > 0 ? (totals.calories / goal.calories) * 100 : 0);
+
+  const handleCopyNutrition = async () => {
+    if (!date || exporting) return;
+    setExporting(true);
+    setExportState(null);
+    const result = await copyNutritionToClipboard(date);
+    setExporting(false);
+    setExportState(
+      result.ok
+        ? { ok: true, message: "КБЖУ за сегодня скопировано" }
+        : { ok: false, message: result.error },
+    );
+  };
 
   return (
     <div className="mx-auto min-h-dvh w-full max-w-[430px] space-y-5 px-5 pt-[max(env(safe-area-inset-top),48px)] pb-16">
@@ -176,6 +193,27 @@ export default function DiaryClient({ hasEmptyIllustration }: { hasEmptyIllustra
               </div>
             );
           })}
+        </div>
+
+        {/* Экспорт текущего КБЖУ дня (Silentium) — только итоги, без продуктов */}
+        <div className="space-y-2 pt-1">
+          <button
+            type="button"
+            onClick={handleCopyNutrition}
+            disabled={!date || exporting}
+            className="glass-control flex w-full items-center justify-center gap-2 py-3 text-sm font-semibold text-[var(--accent)] disabled:opacity-50"
+          >
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden className="shrink-0">
+              <rect x="7" y="2.5" width="9" height="12" rx="2" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M4.5 6.5A2 2 0 0 0 4 7.5v8a2 2 0 0 0 2 2h6.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+            {exporting ? "Копируем…" : "Копировать КБЖУ"}
+          </button>
+          {exportState && (
+            <p className={`text-xs ${exportState.ok ? "text-[#1d8a60]" : "text-red-600"}`}>
+              {exportState.message}
+            </p>
+          )}
         </div>
       </section>
 

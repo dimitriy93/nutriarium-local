@@ -9,7 +9,7 @@ import Dexie, { type EntityTable } from "dexie";
  * - foods   — справочник блюд, КБЖУ на одну порцию; удаление soft (deletedAt);
  * - entries — записи дневника. name/calories/protein/fat/carbs — SNAPSHOT на
  *   момент добавления: последующее редактирование блюда историю не меняет;
- * - settings — key/value: профиль (имя), дневные цели, AI proxy URL.
+ * - settings — key/value: профиль (имя), дневные цели, Google AI API Key.
  */
 
 export interface Food {
@@ -56,9 +56,9 @@ export interface ProfileSettings {
   displayName: string;
 }
 
-/** URL внешнего AI-proxy (ключ хранится только в proxy, не в браузере). */
+/** Google AI API Key пользователя (хранится только на этом устройстве). */
 export interface AiSettings {
-  proxyUrl: string;
+  apiKey: string;
 }
 
 export type SettingsValue = GoalSettings | ProfileSettings | AiSettings;
@@ -81,6 +81,12 @@ db.version(1).stores({
   foods: "id, name, deletedAt",
   entries: "id, entryDate, foodId, createdAt",
   settings: "key",
+});
+
+// Устаревшая настройка ai-proxy (запись settings { key: "ai", proxyUrl }) —
+// архитектура прокси удалена, ключ теперь хранится локально у пользователя.
+db.version(2).upgrade(async (tx) => {
+  await tx.table("settings").delete(SETTINGS_KEYS.ai);
 });
 
 /** UUID для локальных записей (аналог defaultRandom() в старой схеме). */

@@ -4,8 +4,9 @@ import { DEFAULT_GOALS } from "@/lib/diary";
 import {
   getGoals,
   getProfile,
-  getAiSettings,
-  saveAiSettings,
+  getAiApiKey,
+  saveAiApiKey,
+  clearAiApiKey,
   saveGoals,
   saveProfile,
 } from "@/lib/repositories/settings";
@@ -73,26 +74,31 @@ describe("settings: profile", () => {
   });
 });
 
-describe("settings: ai proxy", () => {
-  it("AI не настроен по умолчанию", async () => {
-    expect(await getAiSettings()).toBeNull();
+describe("settings: ai api key", () => {
+  it("ключ не настроен по умолчанию", async () => {
+    expect(await getAiApiKey()).toBeNull();
   });
 
-  it("сохраняет и читает адрес прокси", async () => {
-    const result = await saveAiSettings({ proxyUrl: "https://nutriarium-ai.example.workers.dev" });
-    expect(result.ok).toBe(true);
-    const ai = await getAiSettings();
-    expect(ai?.proxyUrl).toBe("https://nutriarium-ai.example.workers.dev");
-    expect(JSON.stringify(await db.settings.get(SETTINGS_KEYS.ai))).not.toMatch(/key=/i);
+  it("сохраняет, читает и удаляет ключ", async () => {
+    const saved = await saveAiApiKey("  AIzaSyTest1234567890  ");
+    expect(saved.ok).toBe(true);
+    expect(await getAiApiKey()).toBe("AIzaSyTest1234567890");
+
+    const cleared = await clearAiApiKey();
+    expect(cleared.ok).toBe(true);
+    expect(await getAiApiKey()).toBeNull();
+    // Запись settings удалена, а не обнулена.
+    expect(await db.settings.get(SETTINGS_KEYS.ai)).toBeUndefined();
   });
 
-  it("отклоняет http и URL с ключом", async () => {
-    const http = await saveAiSettings({ proxyUrl: "http://insecure.example.com" });
-    expect(http.ok).toBe(false);
+  it("перезаписывает сохранённый ключ новым", async () => {
+    await saveAiApiKey("AIzaSyOld111111111111");
+    await saveAiApiKey("AIzaSyNew222222222222");
+    expect(await getAiApiKey()).toBe("AIzaSyNew222222222222");
+  });
 
-    const withKey = await saveAiSettings({
-      proxyUrl: "https://example.com?key=SECRET",
-    });
-    expect(withKey.ok).toBe(false);
+  it("отклоняет пустой ключ и ключ с переносами строк", async () => {
+    expect((await saveAiApiKey("   ")).ok).toBe(false);
+    expect((await saveAiApiKey("key\nwith\nnewlines")).ok).toBe(false);
   });
 });

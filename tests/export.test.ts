@@ -1,12 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
-import { createFood, softDeleteFood } from "@/lib/repositories/foods";
+import { createFood } from "@/lib/repositories/foods";
 import { createEntry } from "@/lib/repositories/diary";
-import { saveGoals } from "@/lib/repositories/settings";
-import { buildExport, EXPORT_SCHEMA_VERSION } from "@/lib/export/export";
+import { saveAiApiKey, saveGoals } from "@/lib/repositories/settings";
+import { buildNutritionExport, EXPORT_SCHEMA_VERSION } from "@/lib/export/export";
 import { foodInputSchema } from "@/lib/validation";
-import { parseAiSuggestion } from "@/lib/ai/estimate";
-import { AiError } from "@/lib/ai/estimate";
+import { parseAiSuggestion, AiError } from "@/lib/ai/estimate";
 
 beforeEach(async () => {
   await Promise.all(db.tables.map((t) => t.clear()));
@@ -15,63 +14,68 @@ beforeEach(async () => {
 const greek = { name: "Гречка 250 г", calories: 400, protein: 20, fat: 10, carbs: 60 };
 const oat = { name: "Овсянка", calories: 250, protein: 10, fat: 5, carbs: 40 };
 
-describe("export: buildExport", () => {
-  it("формирует версионируемый JSON со всеми данными", async () => {
+describe("export: buildNutritionExport (итоги дня для Silentium)", () => {
+  it("содержит только schemaVersion, source, date и суммарное КБЖУ", async () => {
     const food = await createFood(greek, { source: "ai" });
     if (!food.ok) throw new Error("create failed");
     await createFood(oat);
-    await createEntry({ foodId: food.data.id, entryDate: "2026-09-28", quantity: 2 });
-    await saveGoals({ calories: 2100, protein: 130, fat: 65, carbs: 240 });
+    await createEntry({ foodId: food.data.id, entryDate: "2026-09-29", quantity: 2 });
 
-    const exported = await buildExport();
+    const exported = await buildNutritionExport("2026-09-29");
 
     expect(exported.schemaVersion).toBe(EXPORT_SCHEMA_VERSION);
     expect(EXPORT_SCHEMA_VERSION).toBe(1);
     expect(exported.source).toBe("nutriarium");
-    expect(new Date(exported.exportedAt).toString()).not.toBe("Invalid Date");
-
-    // Entries: только контрактные поля, без внутренних ключей IndexedDB.
-    expect(exported.data.entries).toEqual([
-      {
-        date: "2026-09-28",
-        name: greek.name,
-        calories: 400,
-        protein: 20,
-        fat: 10,
-        carbs: 60,
-        quantity: 2,
-        createdAt: expect.any(String),
-      },
-    ]);
-
-    // Foods: только активные (soft-deleted не экспортируются).
-    await softDeleteFood(food.data.id);
-    const afterDelete = await buildExport();
-    expect(afterDelete.data.foods.map((f) => f.name)).toEqual([oat.name]);
-    // Запись дневника сохраняется со своим snapshot.
-    expect(afterDelete.data.entries).toHaveLength(1);
-
-    // Goals.
-    expect(exported.data.goals).toEqual({
-      calories: 2100,
-      protein: 130,
-      fat: 65,
-      carbs: 240,
+    expect(exported.date).toBe("2026-09-29");
+    // snapshot × quantity по всем записям дня.
+    expect(exported.nutrition).toEqual({
+      calories: 800,
+      protein: 40,
+      fat: 20,
+      carbs: 120,
     });
+
+    // Контракт: ровно четыре поля верхнего уровня, без продуктов/целей/настроек.
+    expect(Object.keys(exported).sort()).toEqual(
+      ["date", "nutrition", "schemaVersion", "source"],
+    );
 
     // JSON-сериализуемость (для clipboard).
     expect(() => JSON.stringify(exported)).not.toThrow();
   });
 
-  it("пустая база даёт валидный пустой экспорт", async () => {
-    const exported = await buildExport();
-    expect(exported.data.entries).toEqual([]);
-    expect(exported.data.foods).toEqual([]);
-    expect(exported.data.goals.calories).toBeGreaterThan(0);
+  it("не включает блюда, цели и API-ключ", async () => {
+    const food = await createFood(greek);
+    if (!food.ok) throw new Error("create failed");
+    await createEntry({ foodId: food.data.id, entryDate: "2026-09-29", quantity: 1 });
+    await saveGoals({ calories: 2100, protein: 130, fat: 65, carbs: 240 });
+    await saveAiApiKey("AIzaSySecretKey1234567890");
+
+    const json = JSON.stringify(await buildNutritionExport("2026-09-29"));
+    const parsed = JSON.parse(json);
+
+    expect(parsed.data).toBeUndefined();
+    expect(json).not.toContain(greek.name);
+    expect(json).not.toContain("2100");
+    expect(json).not.toContain("AIzaSy");
+  });
+
+  it("пустой день даёт нули", async () => {
+    const exported = await buildNutritionExport("2026-09-29");
+    expect(exported.nutrition).toEqual({ calories: 0, protein: 0, fat: 0, carbs: 0 });
+  });
+
+  it("итоги только запрошенного дня", async () => {
+    const food = await createFood(greek);
+    if (!food.ok) throw new Error("create failed");
+    await createEntry({ foodId: food.data.id, entryDate: "2026-09-28", quantity: 1 });
+
+    const today = await buildNutritionExport("2026-09-29");
+    expect(today.nutrition.calories).toBe(0);
   });
 });
 
-describe("ai: parseAiSuggestion (клиентская валидация ответа proxy)", () => {
+describe("ai: parseAiSuggestion (клиентская валидация ответа Gemini)", () => {
   it("принимает корректное предложение", () => {
     const parsed = parseAiSuggestion({
       name: "Гречневая каша 250 г",

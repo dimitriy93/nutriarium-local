@@ -2,9 +2,8 @@ import BottomNav from "@/components/bottom-nav";
 import SettingsClient from "@/components/settings-client";
 
 /**
- * Настройки local-first версии: профиль и цели (IndexedDB), AI-proxy и
- * экспорт данных. Раздел «Аккаунт» из прежней версии удалён вместе с
- * авторизацией.
+ * Настройки local-first версии: профиль, цели и AI-ключ (IndexedDB).
+ * Раздел «Аккаунт» из прежней версии удалён вместе с авторизацией.
  */
 export default function SettingsPage() {
   return (

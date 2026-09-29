@@ -1,12 +1,14 @@
 import { db, SETTINGS_KEYS, type AiSettings, type GoalSettings, type ProfileSettings } from "@/lib/db";
 import { DEFAULT_GOALS, type Macros } from "@/lib/diary";
 import type { Action } from "@/lib/types";
-import { aiSettingsSchema, formatZodError, profileUpdateSchema, type AiSettingsInput, type ProfileUpdate } from "@/lib/validation";
+import { aiApiKeySchema, formatZodError, profileUpdateSchema, type ProfileUpdate } from "@/lib/validation";
 
 /**
- * Репозиторий настроек (local data layer): профиль (имя), дневные цели и URL
- * AI-proxy. Заменяет profiles в Postgres: отдельной таблицы/профиля нет —
- * key/value строки в settings-store IndexedDB.
+ * Репозиторий настроек (local data layer): профиль (имя), дневные цели и
+ * Google AI API Key. Заменяет profiles в Postgres: отдельной таблицы/профиля
+ * нет — key/value строки в settings-store IndexedDB. Ключ AI хранится только
+ * на устройстве пользователя: не попадает в экспорт, логи и на какие-либо
+ * серверы приложения.
  */
 
 /** Цели пользователя; отсутствующие/нулевые значения заменяются дефолтами. */
@@ -69,15 +71,15 @@ export async function saveProfile(input: ProfileUpdate): Promise<Action<ProfileS
   }
 }
 
-/** URL AI-proxy; null — AI не настроен. */
-export async function getAiSettings(): Promise<AiSettings | null> {
+/** Google AI API Key; null — AI не настроен (приложение работает без него). */
+export async function getAiApiKey(): Promise<string | null> {
   const saved = (await db.settings.get(SETTINGS_KEYS.ai)) as AiSettings | undefined;
-  return saved?.proxyUrl ? saved : null;
+  return saved?.apiKey ? saved.apiKey : null;
 }
 
-/** Сохранение/обновление URL AI-proxy (без ключей — только адрес прокси). */
-export async function saveAiSettings(input: AiSettingsInput): Promise<Action<AiSettings>> {
-  const parsed = aiSettingsSchema.safeParse(input);
+/** Сохранение Google AI API Key (только локально, в settings-store). */
+export async function saveAiApiKey(apiKey: string): Promise<Action<string>> {
+  const parsed = aiApiKeySchema.safeParse(apiKey);
   if (!parsed.success) {
     return { ok: false, error: formatZodError(parsed.error) };
   }
@@ -85,12 +87,23 @@ export async function saveAiSettings(input: AiSettingsInput): Promise<Action<AiS
   try {
     const value: AiSettings & { key: string } = {
       key: SETTINGS_KEYS.ai,
-      proxyUrl: parsed.data.proxyUrl,
+      apiKey: parsed.data,
     };
     await db.settings.put(value);
-    return { ok: true, data: { proxyUrl: parsed.data.proxyUrl } };
+    return { ok: true, data: parsed.data };
   } catch (error) {
-    console.error("[settings] saveAiSettings failed:", error);
-    return { ok: false, error: "Не удалось сохранить настройки AI" };
+    console.error("[settings] saveAiApiKey failed:", error);
+    return { ok: false, error: "Не удалось сохранить API-ключ" };
+  }
+}
+
+/** Удаление сохранённого ключа (AI отключается, всё остальное работает). */
+export async function clearAiApiKey(): Promise<Action<true>> {
+  try {
+    await db.settings.delete(SETTINGS_KEYS.ai);
+    return { ok: true, data: true };
+  } catch (error) {
+    console.error("[settings] clearAiApiKey failed:", error);
+    return { ok: false, error: "Не удалось удалить API-ключ" };
   }
 }

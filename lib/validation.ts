@@ -87,17 +87,18 @@ export const profileUpdateSchema = z.object({
 
 export type ProfileUpdate = z.infer<typeof profileUpdateSchema>;
 
-/** URL внешнего AI-proxy: обычный https-адрес, ключи сюда не входят. */
-export const aiSettingsSchema = z.object({
-  proxyUrl: z
-    .string()
-    .trim()
-    .url("Некорректный URL")
-    .refine((v) => v.startsWith("https://"), "URL должен начинаться с https://")
-    .refine((v) => !/[?&]key=/i.test(v), "URL не должен содержать API key"),
-});
+/**
+ * Google AI API Key: непустая строка без переносов. Ключ хранится только
+ * локально (IndexedDB) и никогда не попадает в экспорт и логи.
+ */
+export const aiApiKeySchema = z
+  .string()
+  .trim()
+  .min(1, "Вставьте Google AI API Key")
+  .refine((v) => !/[\r\n]/.test(v), "Ключ не должен содержать переносов строк")
+  .max(200, "Слишком длинное значение ключа");
 
-export type AiSettingsInput = z.infer<typeof aiSettingsSchema>;
+export type AiApiKeyInput = z.infer<typeof aiApiKeySchema>;
 
 /** Текст пользователя для расчёта КБЖУ через AI. */
 export const aiEstimateInputSchema = z

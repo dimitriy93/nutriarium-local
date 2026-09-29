@@ -5,7 +5,7 @@ import {
   sanityCheckAiFood,
   type FoodInput,
 } from "@/lib/validation";
-import { getAiSettings } from "@/lib/repositories/settings";
+import { getAiApiKey } from "@/lib/repositories/settings";
 import type { Action } from "@/lib/types";
 
 /**
@@ -14,17 +14,41 @@ import type { Action } from "@/lib/types";
  * предложение: он никогда не сохраняется автоматически, сохранение делает
  * пользователь после проверки (обычный createFood).
  *
- * Архитектура (вариант B): секретный API-ключ Gemini НЕ попадает в браузер.
- * Приложение отправляет текст блюда на отдельный минимальный AI-proxy
- * (см. ai-proxy/ — Cloudflare Worker, ключ в его переменных окружения), который
- * обращается к Gemini и возвращает уже готовый структурированный результат.
- * В client bundle попадает только URL прокси — без ключей.
+ * Архитектура: приложение обращается к Google Gemini НАПРЯМУЮ из браузера,
+ * без промежуточного прокси/сервера. Google AI API Key пользователь вставляет
+ * сам в настройках; ключ хранится только локально (IndexedDB, settings-store)
+ * и уходит только в Google. Это осознанное решение для локального приложения:
+ * ключ не является секретом серверной инфраструктуры, потому что её нет.
  *
- * Ответ proxy дополнительно валидируется на клиенте (zod + sanity check):
- * proxy может быть любым, поэтому структурированному ответу не доверяем.
+ * Ответ Gemini дополнительно валидируется на клиенте (zod + sanity check):
+ * структурированному ответу модели не доверяем.
  */
 
+const API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const TIMEOUT_MS = 15_000;
+const TEMPERATURE = 0.1;
+const GEMINI_MODEL = "gemini-2.0-flash";
+
+/** Подмножество OpenAPI Schema, поддерживаемое Gemini responseSchema. */
+const kbjuResponseSchema = {
+  type: "OBJECT",
+  properties: {
+    name: { type: "STRING" },
+    calories: { type: "NUMBER" },
+    protein: { type: "NUMBER" },
+    fat: { type: "NUMBER" },
+    carbs: { type: "NUMBER" },
+  },
+  required: ["name", "calories", "protein", "fat", "carbs"],
+} as const;
+
+const SYSTEM_PROMPT = `Ты — калькулятор пищевой ценности блюд.
+Пользователь описывает блюдо или порцию на естественном языке (возможно, по-русски), например: «гречневая каша 250 г с молоком».
+Правила:
+- Оценивай КБЖУ ИМЕННО на указанную порцию целиком. Если указана масса/объём — считай для неё, а не на 100 г. Если масса не указана — возьми стандартную порцию и оцени её.
+- Верни СТРОГО JSON-объект без пояснений, разметки и текста вокруг: название блюда (краткое, с порцией, на русском), калории (ккал), белки/жиры/углеводы (граммы).
+- Значения — конечные неотрицательные числа.
+- Если информации недостаточно, сделай разумное предположение о составе и верни числовой результат.`;
 
 /** Ошибка интеграции с AI. `message` — безопасная формулировка для UI. */
 export class AiError extends Error {
@@ -48,8 +72,40 @@ export function parseAiSuggestion(data: unknown): FoodInput {
 }
 
 /**
+ * Разбор сырого JSON-ответа Gemini REST до объекта предложения.
+ * Выделено отдельно (pure-функция), чтобы можно было проверять malformed
+ * ответы в тестах без сети.
+ */
+export function extractSuggestion(payload: unknown): FoodInput {
+  if (typeof payload !== "object" || payload === null) {
+    throw new AiError("AI вернул ответ в неожиданном формате");
+  }
+  const feedback = (payload as { promptFeedback?: { blockReason?: unknown } })
+    .promptFeedback;
+  if (feedback && typeof feedback.blockReason === "string") {
+    throw new AiError("Запрос отклонён фильтрами AI");
+  }
+  const parts = (payload as {
+    candidates?: { content?: { parts?: { text?: unknown }[] } }[];
+  }).candidates;
+  const text = parts?.[0]?.content?.parts?.find((p) => typeof p.text === "string")?.text;
+  if (typeof text !== "string") {
+    throw new AiError("AI вернул пустой ответ");
+  }
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new AiError("AI вернул не-JSON ответ");
+  }
+  return parseAiSuggestion(json);
+}
+
+/**
  * Расчёт КБЖУ по свободному тексту («гречневая каша 250 г с молоком»).
- * Бросает AiError с безопасным для показа сообщением.
+ * Прямой запрос к Google Gemini API из браузера с ключом пользователя.
+ * Бросает/возвращает AiError с безопасным для показа сообщением; сам ключ
+ * ни в сообщения, ни в консоль не попадает.
  */
 export async function estimateFood(userText: string): Promise<Action<FoodInput>> {
   const text = aiEstimateInputSchema.safeParse(userText);
@@ -57,26 +113,30 @@ export async function estimateFood(userText: string): Promise<Action<FoodInput>>
     return { ok: false, error: formatZodError(text.error) };
   }
 
-  let proxyUrl: string | null = null;
-  try {
-    proxyUrl = (await getAiSettings())?.proxyUrl ?? null;
-  } catch {
-    proxyUrl = null;
-  }
-  if (!proxyUrl) {
+  const apiKey = await getAiApiKey().catch(() => null);
+  if (!apiKey) {
     return {
       ok: false,
       error:
-        "AI не настроен: укажите адрес AI-proxy в настройках приложения.",
+        "AI не настроен: добавьте Google AI API Key в настройках приложения.",
     };
   }
 
+  const url = `${API_BASE}/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   let response: Response;
   try {
-    response = await fetch(proxyUrl, {
+    response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: text.data }),
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: [{ role: "user", parts: [{ text: text.data }] }],
+        generationConfig: {
+          temperature: TEMPERATURE,
+          responseMimeType: "application/json",
+          responseSchema: kbjuResponseSchema,
+        },
+      }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (error) {
@@ -84,7 +144,7 @@ export async function estimateFood(userText: string): Promise<Action<FoodInput>>
       return { ok: false, error: "AI недоступен: таймаут. Попробуйте ещё раз." };
     }
     console.error("[ai] network failure:", error);
-    // Оффлайн / DNS / CORS — для пользователя это прежде всего «нет интернета».
+    // Оффлайн / DNS — для пользователя это прежде всего «нет интернета».
     return {
       ok: false,
       error:
@@ -97,7 +157,10 @@ export async function estimateFood(userText: string): Promise<Action<FoodInput>>
       return { ok: false, error: "Превышен лимит запросов к AI. Попробуйте позже." };
     }
     if (response.status === 400 || response.status === 401 || response.status === 403) {
-      return { ok: false, error: "AI-proxy отклонил запрос (проверьте конфигурацию прокси)." };
+      return {
+        ok: false,
+        error: "Google отклонил запрос (проверьте Google AI API Key в настройках).",
+      };
     }
     return { ok: false, error: `Сервис AI вернул ошибку (код ${response.status})` };
   }
@@ -109,17 +172,8 @@ export async function estimateFood(userText: string): Promise<Action<FoodInput>>
     return { ok: false, error: "AI вернул ответ, который не удалось прочитать" };
   }
 
-  // Контракт proxy совпадает с форматом действий приложения: { ok, data | error }.
-  const envelope = payload as { ok?: unknown; data?: unknown; error?: unknown };
-  if (envelope && envelope.ok === false && typeof envelope.error === "string") {
-    return { ok: false, error: envelope.error };
-  }
-  if (!envelope || envelope.ok !== true) {
-    return { ok: false, error: "AI вернул ответ в неожиданном формате" };
-  }
-
   try {
-    return { ok: true, data: parseAiSuggestion(envelope.data) };
+    return { ok: true, data: extractSuggestion(payload) };
   } catch (error) {
     if (error instanceof AiError) {
       return { ok: false, error: error.message };

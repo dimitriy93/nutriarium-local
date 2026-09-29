@@ -1,7 +1,7 @@
-import { buildExport } from "@/lib/export/export";
+import { buildNutritionExport } from "@/lib/export/export";
 
 /**
- * Копирование JSON-экспорта в буфер обмена (navigator.clipboard).
+ * Копирование КБЖУ дня в буфер обмена (navigator.clipboard).
  *
  * Обрабатываются: успех, отсутствие Clipboard API (старые браузеры /
  * http-контекст) и ошибки записи (разрешение, отказ). Fallback — временный
@@ -43,14 +43,14 @@ function copyViaExecCommand(text: string): boolean {
   }
 }
 
-/** Собирает экспорт из IndexedDB и копирует его JSON в буфер обмена. */
-export async function copyExportToClipboard(): Promise<CopyResult> {
+/** Собирает итоги дня из IndexedDB и копирует JSON в буфер обмена. */
+export async function copyNutritionToClipboard(date: string): Promise<CopyResult> {
   let json: string;
   try {
-    json = JSON.stringify(await buildExport(), null, 2);
+    json = JSON.stringify(await buildNutritionExport(date), null, 2);
   } catch (error) {
     console.error("[export] build failed:", error);
-    return { ok: false, error: "Не удалось собрать данные для экспорта" };
+    return { ok: false, error: "Не удалось собрать итоги дня" };
   }
 
   if (await copyViaClipboardApi(json)) {
