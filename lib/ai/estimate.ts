@@ -25,7 +25,9 @@ import type { Action } from "@/lib/types";
  */
 
 const API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-const TIMEOUT_MS = 15_000;
+// 30 c: реальная генерация flash-модели может занимать заметно больше 15 c,
+// слишком короткий таймаут маскируется под «сервис недоступен».
+const TIMEOUT_MS = 30_000;
 const TEMPERATURE = 0.1;
 const GEMINI_MODEL = "gemini-3.8-flash";
 
@@ -102,6 +104,21 @@ export function extractSuggestion(payload: unknown): FoodInput {
 }
 
 /**
+ * Человекочитаемое сообщение об ошибке из тела ответа Google
+ * (формат { error: { code, message, status } }); null — если не распознано.
+ */
+function extractGoogleErrorMessage(bodyText: string): string | null {
+  if (!bodyText) return null;
+  try {
+    const parsed = JSON.parse(bodyText) as { error?: { message?: unknown } };
+    const message = parsed.error?.message;
+    return typeof message === "string" && message ? message : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Расчёт КБЖУ по свободному тексту («гречневая каша 250 г с молоком»).
  * Прямой запрос к Google Gemini API из браузера с ключом пользователя.
  * Бросает/возвращает AiError с безопасным для показа сообщением; сам ключ
@@ -140,35 +157,60 @@ export async function estimateFood(userText: string): Promise<Action<FoodInput>>
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (error) {
+    // Причина различается явно: таймаут, abort, сеть/DNS. В лог и в сообщение
+    // пользователю уходит реальная причина (error.name/message), но не URL —
+    // в нём лежит API-ключ.
     if (error instanceof DOMException && error.name === "TimeoutError") {
-      return { ok: false, error: "AI недоступен: таймаут. Попробуйте ещё раз." };
+      console.error(`[ai] request timed out after ${TIMEOUT_MS} ms`);
+      return {
+        ok: false,
+        error: `AI не ответил за ${TIMEOUT_MS / 1000} секунд (таймаут запроса). Проверьте интернет и попробуйте ещё раз.`,
+      };
     }
-    console.error("[ai] network failure:", error);
-    // Оффлайн / DNS — для пользователя это прежде всего «нет интернета».
+    if (error instanceof DOMException && error.name === "AbortError") {
+      console.error("[ai] request aborted:", error.message);
+      return { ok: false, error: `Запрос к AI прерван: ${error.message}` };
+    }
+    const detail =
+      error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    console.error("[ai] network failure:", detail);
+    // Оффлайн / DNS / блокировка провайдером — показываем конкретную ошибку браузера.
     return {
       ok: false,
-      error:
-        "Для AI-запроса требуется интернет. Приложение продолжает работать оффлайн, попробуйте позже.",
+      error: `Сетевая ошибка при обращении к AI: ${detail}. Приложение продолжает работать оффлайн, попробуйте позже.`,
     };
   }
 
   if (!response.ok) {
+    const bodyText = await response.text().catch(() => "");
+    console.error(`[ai] HTTP ${response.status} ${response.statusText}:`, bodyText.slice(0, 500));
+    const serverMessage = extractGoogleErrorMessage(bodyText);
+    const cause = serverMessage ? `: ${serverMessage}` : ` (код ${response.status})`;
     if (response.status === 429) {
-      return { ok: false, error: "Превышен лимит запросов к AI. Попробуйте позже." };
+      return { ok: false, error: `Превышен лимит запросов к AI${cause}. Попробуйте позже.` };
     }
     if (response.status === 400 || response.status === 401 || response.status === 403) {
       return {
         ok: false,
-        error: "Google отклонил запрос (проверьте Google AI API Key в настройках).",
+        error: `Google отклонил запрос${cause}. Проверьте Google AI API Key в настройках.`,
       };
     }
-    return { ok: false, error: `Сервис AI вернул ошибку (код ${response.status})` };
+    if (response.status === 404) {
+      return {
+        ok: false,
+        error: `Модель «${GEMINI_MODEL}» недоступна для этого ключа${cause}.`,
+      };
+    }
+    return { ok: false, error: `Сервис AI вернул ошибку HTTP ${response.status}${cause}` };
   }
 
   let payload: unknown;
+  let rawBody = "";
   try {
-    payload = await response.json();
+    rawBody = await response.text();
+    payload = JSON.parse(rawBody);
   } catch {
+    console.error("[ai] non-JSON response body:", rawBody.slice(0, 500));
     return { ok: false, error: "AI вернул ответ, который не удалось прочитать" };
   }
 
